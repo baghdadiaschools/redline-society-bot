@@ -1,0 +1,17 @@
+[project]
+name = "redline-society-bot"
+version = "1.0.0"
+description = "Always-on Redline Society Discord economy and marketplace worker"
+requires-python = ">=3.13,<3.15"
+dependencies = ["discord.py==2.7.1"]
+
+[dependency-groups]
+dev = ["mypy==1.18.2"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["src"]
+mypy_path = "src"
+check_untyped_defs = true
+disallow_untyped_defs = true
+

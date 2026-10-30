@@ -1,0 +1,35 @@
+# Optional Render Blueprint. Review the service/disk price before creating it.
+services:
+  - type: worker
+    name: redline-society-bot
+    runtime: python
+    plan: starter
+    buildCommand: python -m pip install -r requirements.lock && python scripts/build.py
+    startCommand: python dist/redline.pyz
+    numInstances: 1
+    autoDeployTrigger: off
+    disk:
+      name: redline-storage
+      mountPath: /var/data
+      sizeGB: 25
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.11
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: GUILD_ID
+        sync: false
+      - key: OWNER_ID
+        sync: false
+      - key: DATA_DIR
+        value: /var/data/redline
+      - key: BACKUP_DIR
+        value: /var/data/backups
+      - key: BACKUP_INTERVAL_HOURS
+        value: "24"
+      - key: BACKUP_KEEP
+        value: "7"
+      - key: MAX_UPLOAD_MB
+        value: "8"
+      - key: STORAGE_LIMIT_MB
+        value: "2048"

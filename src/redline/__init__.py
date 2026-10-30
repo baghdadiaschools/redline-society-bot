@@ -1,0 +1,2 @@
+"""Redline Society bot."""
+
