@@ -27,6 +27,9 @@ async def serve() -> None:
         }, status=503 if missing else 200)
 
     app.router.add_get("/", status)
+    async def health(request: web.Request) -> web.Response:
+        return web.json_response({"http": "ok", "discord_configured": not missing})
+    app.router.add_get("/api/health", health)
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", "10000"))).start()
