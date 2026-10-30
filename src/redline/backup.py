@@ -69,7 +69,10 @@ def restore(archive: Path, target: Path) -> None:
             if name != "bot.db" and not (name.startswith("materials/") and len(Path(name).parts) == 2):
                 raise ValueError("Unexpected backup path.")
             with z.open(name) as stream:
-                if hashlib.file_digest(stream, "sha256").hexdigest() != digest:
+                checksum = hashlib.sha256()
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    checksum.update(chunk)
+                if checksum.hexdigest() != digest:
                     raise ValueError("Backup checksum mismatch.")
         for name in manifest:
             path = target / name

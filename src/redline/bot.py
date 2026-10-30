@@ -1,5 +1,5 @@
 import asyncio
-from contextlib import suppress
+from contextlib import closing, suppress
 import logging
 from pathlib import Path
 import random
@@ -152,7 +152,7 @@ class Bot(discord.Client):
             path = self.materials / item["file_name"]
             if not path.is_file():
                 raise UserError("Your purchase is recorded, but its file is missing. Ask the owner to restore a backup.")
-            with discord.File(path, filename=item["original_name"]) as file:
+            with closing(discord.File(path, filename=item["original_name"])) as file:
                 await i.followup.send(f"Your purchase: {safe_title(item['title'])}", file=file, ephemeral=True)
 
     async def backup_loop(self) -> None:

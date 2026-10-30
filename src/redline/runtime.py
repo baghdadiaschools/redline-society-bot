@@ -1,6 +1,7 @@
 """Small cross-platform runtime helpers, using only the standard library."""
 from contextlib import AbstractContextManager
 import os
+import sys
 from pathlib import Path
 import time
 from typing import IO, Any
@@ -40,7 +41,7 @@ class FileLock(AbstractContextManager["FileLock"]):
         while True:
             try:
                 self.handle.seek(0)
-                if os.name == "nt":
+                if sys.platform == "win32":
                     import msvcrt
                     msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
                 else:
@@ -57,7 +58,7 @@ class FileLock(AbstractContextManager["FileLock"]):
     def __exit__(self, *args: Any) -> None:
         if self.handle:
             self.handle.seek(0)
-            if os.name == "nt":
+            if sys.platform == "win32":
                 import msvcrt
                 msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
             else:
