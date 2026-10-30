@@ -1,5 +1,6 @@
 name: Validate bot
 on:
+  workflow_dispatch:
   push:
   pull_request:
 permissions:
