@@ -16,6 +16,14 @@ Set PYTHON_VERSION=3.13.11, DATA_DIR=./data, BACKUP_DIR=./backups.
 Enter DISCORD_TOKEN, GUILD_ID and OWNER_ID privately in Render Environment.
 The HTTP page reports missing variable names without revealing values. Once
 all three are configured, restart/redeploy the service to connect Discord.
+
+For public listing cards, grant the bot View Channel, Send Messages and Embed
+Links in the selected channel. Run /market_channel first. /sell posts a public
+description card with a Buy button; /role_add and /pack_add post there too.
+The owner can edit any active listing with /listing_edit or withdraw it with
+/remove. /listing_post publishes an existing unposted item. Buttons and cards
+cannot restore listings when Render's free local storage is erased on sleep,
+restart or redeploy; old cards then show an unavailable listing.
 No automatic pings or other attempts to bypass hosting limits are included.
 
 Switching the existing school service to this repository replaces its live

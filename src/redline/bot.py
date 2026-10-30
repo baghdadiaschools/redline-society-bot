@@ -23,6 +23,32 @@ def safe_title(value: str) -> str:
     return discord.utils.escape_markdown(discord.utils.escape_mentions(value))
 
 
+class BuyButton(discord.ui.View):
+    def __init__(self, bot: "Bot", listing_id: int):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.listing_id = listing_id
+        button = discord.ui.Button(label="Buy with R-coins", style=discord.ButtonStyle.green,
+                                   custom_id=f"redline:buy:{listing_id}")
+        button.callback = self.buy
+        self.add_item(button)
+
+    async def buy(self, interaction: discord.Interaction) -> None:
+        try:
+            await self.bot.begin(interaction)
+            await self.bot.purchase(interaction, self.listing_id)
+        except app_commands.AppCommandError as exc:
+            await self.bot.command_error(interaction, exc)
+        except UserError as exc:
+            await self.bot.reply_error(interaction, str(exc))
+        except discord.HTTPException as exc:
+            log.warning("discord_request_failed status=%s", exc.status)
+            await self.bot.reply_error(interaction, "Delivery failed. If charged, use /download at no cost.")
+        except Exception as exc:
+            log.error("button_purchase_failed type=%s", type(exc).__name__)
+            await self.bot.reply_error(interaction, "Purchase could not finish. Check /inventory and retry /download.")
+
+
 class CommandTree(app_commands.CommandTree["Bot"]):
     async def on_error(self, interaction: discord.Interaction,
                        error: app_commands.AppCommandError) -> None:
@@ -48,6 +74,8 @@ class Bot(discord.Client):
         self.register_commands()
 
     async def setup_hook(self) -> None:
+        for item in self.store.posted_active():
+            self.add_view(BuyButton(self, int(item["id"])), message_id=int(item["post_message_id"]))
         await self.tree.sync(guild=self.guild_scope)
         self.background = [asyncio.create_task(self.backup_loop()),
                            asyncio.create_task(self.health_loop())]
@@ -81,10 +109,73 @@ class Bot(discord.Client):
             text = "The action could not finish. If you purchased an item, check /inventory and retry /download."
             log.error("command_failed type=%s command=%s", type(original).__name__,
                       interaction.command.name if interaction.command else "unknown")
+        await self.reply_error(interaction, text)
+
+    async def reply_error(self, interaction: discord.Interaction, text: str) -> None:
         if interaction.response.is_done():
             await interaction.followup.send(text, ephemeral=True)
         else:
             await interaction.response.send_message(text, ephemeral=True)
+
+    def listing_embed(self, item: dict[str, object]) -> discord.Embed:
+        kind = str(item["kind"])
+        embed = discord.Embed(title=f"#{item['id']} • {safe_title(str(item['title']))}",
+                              description=safe_title(str(item["description"])) or "No description provided.",
+                              color=discord.Color.red())
+        embed.add_field(name="Price", value=f"{int(str(item['price'])):,} R-coins")
+        embed.add_field(name="Type", value={"market": "Member package", "pack": "Official package",
+                                           "role": "Official role"}[kind])
+        if kind == "market":
+            embed.add_field(name="Seller", value=f"<@{item['seller_id']}>")
+        embed.set_footer(text="Press Buy for private delivery. Purchases are permanent while storage survives.")
+        return embed
+
+    async def publish_listing(self, i: discord.Interaction, listing_id: int) -> bool:
+        channel_id = self.store.setting("market_channel")
+        if not channel_id or not i.guild:
+            return False
+        item = self.store.listing(listing_id)
+        if item["post_message_id"]:
+            raise UserError("This listing already has a public card.")
+        channel = i.guild.get_channel(int(channel_id)) or await i.guild.fetch_channel(int(channel_id))
+        if not isinstance(channel, discord.TextChannel):
+            raise UserError("Marketplace channel is unavailable. Set /market_channel again.")
+        try:
+            post = await channel.send(embed=self.listing_embed(item), view=BuyButton(self, listing_id),
+                                      allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException as exc:
+            log.warning("listing_card_post_failed id=%s status=%s", listing_id, exc.status)
+            raise UserError(f"Listing #{listing_id} was saved but its public card could not be posted. Check Send Messages and Embed Links permissions, then use /listing_post.") from exc
+        self.store.set_post(listing_id, channel.id, post.id)
+        return True
+
+    async def refresh_listing(self, item: dict[str, object], withdrawn: bool = False) -> None:
+        if not item["post_message_id"] or not item["post_channel_id"]:
+            return
+        try:
+            channel = self.get_channel(int(str(item["post_channel_id"]))) or await self.fetch_channel(int(str(item["post_channel_id"])))
+            if not isinstance(channel, discord.TextChannel):
+                return
+            post = await channel.fetch_message(int(str(item["post_message_id"])))
+            embed = self.listing_embed(item)
+            if withdrawn:
+                embed.title = f"WITHDRAWN • {embed.title}"
+                embed.color = discord.Color.dark_grey()
+                embed.set_footer(text="No longer for sale. Previous buyers may use /download.")
+            await post.edit(embed=embed, view=None if withdrawn else BuyButton(self, int(str(item["id"]))))
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+            log.warning("listing_card_refresh_failed id=%s type=%s", item["id"], type(exc).__name__)
+
+    async def purchase(self, i: discord.Interaction, listing_id: int) -> None:
+        item = self.store.listing(listing_id)
+        if item["kind"] == "market":
+            self.require_market(i)
+        if item["kind"] == "role":
+            await self.role_for(i, int(item["role_id"]))
+        elif not (self.materials / item["file_name"]).is_file():
+            raise UserError("File unavailable. You have not been charged.")
+        self.store.buy(i.user.id, listing_id)
+        await self.deliver(i, listing_id)
 
     async def begin(self, i: discord.Interaction, owner: bool = False) -> None:
         if self.stopping:
@@ -231,29 +322,36 @@ class Bot(discord.Client):
 
         @tree.command(name="role_add", description="Owner only: add a role to the shop", guild=guild)
         async def role_add(i: discord.Interaction, role: discord.Role,
-                           price: app_commands.Range[int, 1, 1000000000]) -> None:
+                           price: app_commands.Range[int, 1, 1000000000],
+                           description: app_commands.Range[str, 1, 500] = "") -> None:
             await self.begin(i, owner=True)
             await self.role_for(i, role.id)
-            listing_id = self.store.add_listing(i.user.id, role.name, price, "role", role_id=role.id)
-            await i.followup.send(f"Role listed as #{listing_id} for {price:,} R-coins.", ephemeral=True)
+            listing_id = self.store.add_listing(i.user.id, role.name, price, "role", role_id=role.id, description=description)
+            posted = await self.publish_listing(i, listing_id)
+            await i.followup.send(f"Role listed as #{listing_id} for {price:,} R-coins." +
+                                  (" Public Buy card posted." if posted else " Set /market_channel, then use /listing_post to publish its Buy card."), ephemeral=True)
 
         @tree.command(name="pack_add", description="Owner only: upload an official shop package", guild=guild)
         async def pack_add(i: discord.Interaction, title: app_commands.Range[str, 1, 80],
-                           price: app_commands.Range[int, 1, 1000000000], file: discord.Attachment) -> None:
+                           price: app_commands.Range[int, 1, 1000000000], file: discord.Attachment,
+                           description: app_commands.Range[str, 1, 500] = "") -> None:
             await self.begin(i, owner=True)
             async with self.upload_lock:
                 name, original = await self.upload(file)
                 try:
-                    listing_id = self.store.add_listing(i.user.id, title, price, "pack", file_name=name, original_name=original)
+                    listing_id = self.store.add_listing(i.user.id, title, price, "pack", file_name=name, original_name=original, description=description)
                 except BaseException:
                     (self.materials / name).unlink(missing_ok=True)
                     raise
-            await i.followup.send(f"Official package #{listing_id} added. Use /shop to view.", ephemeral=True)
+            posted = await self.publish_listing(i, listing_id)
+            await i.followup.send(f"Official package #{listing_id} added. Use /shop to view." +
+                                  (" Public Buy card posted." if posted else " Set /market_channel, then use /listing_post to publish its Buy card."), ephemeral=True)
 
         @tree.command(name="sell", description="Upload your package in the configured marketplace", guild=guild)
         @app_commands.checks.cooldown(1, 60, key=lambda i: i.user.id)
         async def sell(i: discord.Interaction, title: app_commands.Range[str, 1, 80],
-                       price: app_commands.Range[int, 1, 1000000000], file: discord.Attachment) -> None:
+                       price: app_commands.Range[int, 1, 1000000000], file: discord.Attachment,
+                       description: app_commands.Range[str, 1, 500] = "") -> None:
             await self.begin(i)
             self.require_market(i)
             async with self.upload_lock:
@@ -262,11 +360,12 @@ class Bot(discord.Client):
                     raise UserError("You reached the active listing limit. Remove an old listing first.")
                 name, original = await self.upload(file)
                 try:
-                    listing_id = self.store.add_listing(i.user.id, title, price, "market", file_name=name, original_name=original)
+                    listing_id = self.store.add_listing(i.user.id, title, price, "market", file_name=name, original_name=original, description=description)
                 except BaseException:
                     (self.materials / name).unlink(missing_ok=True)
                     raise
-            await i.followup.send(f"Marketplace listing #{listing_id} created. Members can find it with /market and buy it with /buy. You earn {price:,} R-coins per purchase.", ephemeral=True)
+            await self.publish_listing(i, listing_id)
+            await i.followup.send(f"Marketplace listing #{listing_id} posted with a Buy button. You earn {price:,} R-coins per purchase.", ephemeral=True)
 
         async def show(i: discord.Interaction, market: bool, page: int) -> None:
             await self.begin(i)
@@ -287,16 +386,7 @@ class Bot(discord.Client):
         @tree.command(name="buy", description="Purchase a role or package with R-coins", guild=guild)
         async def buy(i: discord.Interaction, item_id: int) -> None:
             await self.begin(i)
-            item = self.store.listing(item_id)
-            if item["kind"] == "market":
-                self.require_market(i)
-            if item["kind"] == "role":
-                await self.role_for(i, int(item["role_id"]))
-            elif not (self.materials / item["file_name"]).is_file():
-                raise UserError("File unavailable. You have not been charged.")
-            # Atomic debit, seller credit and permanent entitlement. Delivery is retriable.
-            self.store.buy(i.user.id, item_id)
-            await self.deliver(i, item_id)
+            await self.purchase(i, item_id)
 
         @tree.command(name="download", description="Redeliver a purchased file or role at no cost", guild=guild)
         @app_commands.checks.cooldown(1, 10, key=lambda i: i.user.id)
@@ -315,7 +405,27 @@ class Bot(discord.Client):
         async def remove(i: discord.Interaction, item_id: int) -> None:
             await self.begin(i)
             self.store.retire(i.user.id, item_id)
+            await self.refresh_listing(self.store.listing(item_id), withdrawn=True)
             await i.followup.send("Listing removed from sale. Existing purchases and files are preserved.", ephemeral=True)
+
+        @tree.command(name="listing_edit", description="Owner only: edit any listing's price or description", guild=guild)
+        async def listing_edit(i: discord.Interaction, item_id: int,
+                               price: app_commands.Range[int, 1, 1000000000] | None = None,
+                               description: app_commands.Range[str, 1, 500] | None = None) -> None:
+            await self.begin(i, owner=True)
+            self.store.edit_listing(i.user.id, item_id, price, description)
+            await self.refresh_listing(self.store.listing(item_id))
+            await i.followup.send(f"Listing #{item_id} updated. Existing buyers retain access.", ephemeral=True)
+
+        @tree.command(name="listing_post", description="Owner only: publish an existing listing's Buy card", guild=guild)
+        async def listing_post(i: discord.Interaction, item_id: int) -> None:
+            await self.begin(i, owner=True)
+            item = self.store.listing(item_id)
+            if not item["active"]:
+                raise UserError("This listing is withdrawn.")
+            if not await self.publish_listing(i, item_id):
+                raise UserError("Set /market_channel first.")
+            await i.followup.send(f"Listing #{item_id} posted with a Buy button.", ephemeral=True)
 
         @tree.command(name="leaderboard", description="Top 10 R-coin balances", guild=guild)
         async def leaderboard(i: discord.Interaction) -> None:

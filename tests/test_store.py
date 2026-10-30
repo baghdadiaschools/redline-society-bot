@@ -117,7 +117,22 @@ class StoreTests(unittest.TestCase):
         self.store.close()
         self.store = Store(self.data / "bot.db", 1)
         self.assertEqual(self.store.balance(2), 123)
-        self.assertEqual(self.store.db.execute("SELECT COUNT(*) FROM migrations").fetchone()[0], 1)
+        self.assertEqual(self.store.db.execute("SELECT COUNT(*) FROM migrations").fetchone()[0], 2)
+
+    def test_owner_edits_any_listing_and_post_metadata_survives_reopen(self):
+        item = self.store.add_listing(3, "Member pack", 20, "market", file_name="abc",
+                                      description="First description")
+        self.store.set_post(item, 100, 200)
+        with self.assertRaises(UserError):
+            self.store.edit_listing(3, item, 30, "Changed")
+        self.store.edit_listing(1, item, 30, "Changed")
+        self.store.close()
+        self.store = Store(self.data / "bot.db", 1)
+        self.assertEqual(self.store.listing(item)["description"], "Changed")
+        self.assertEqual(self.store.listing(item)["price"], 30)
+        self.assertEqual(self.store.posted_active()[0]["post_message_id"], "200")
+        self.store.retire(1, item)
+        self.assertEqual(self.store.posted_active(), [])
 
     def test_backup_restore_includes_retired_material_and_balances(self):
         material = self.data / "materials"

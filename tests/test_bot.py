@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from redline.bot import Bot
+from redline.bot import Bot, BuyButton
 from redline.config import Config
 from redline.store import Store, UserError
 
@@ -35,7 +35,7 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_all_commands_serialize_without_token(self):
         commands = self.bot.tree.get_commands(guild=self.bot.guild_scope)
-        self.assertEqual(len(commands), 17)
+        self.assertEqual(len(commands), 19)
         for command in commands:
             payload = command.to_dict(self.bot.tree)
             self.assertTrue(payload["name"])
@@ -103,6 +103,22 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
         i.followup.send.side_effect = None
         await self.bot.deliver(i, item)
         self.assertEqual(self.store.balance(2), 50)
+
+    async def test_public_card_button_uses_atomic_purchase_and_private_delivery(self):
+        item = self.store.add_listing(1, "Package", 50, "pack", file_name="abc",
+                                      original_name="pack.zip", description="A safe test file")
+        (self.bot.materials / "abc").write_bytes(b"package")
+        self.store.adjust(1, 2, "set", 100)
+        view = BuyButton(self.bot, item)
+        self.assertEqual(view.children[0].custom_id, f"redline:buy:{item}")
+        i = self.interaction()
+        await view.buy(i)
+        self.assertTrue(self.store.owns(2, item))
+        self.assertEqual(self.store.balance(2), 50)
+        self.assertTrue(i.response.defer.call_args.kwargs["ephemeral"])
+        await view.buy(self.interaction())
+        self.assertEqual(self.store.balance(2), 50)
+        self.assertIn("A safe test file", self.bot.listing_embed(self.store.listing(item)).description)
 
 
 if __name__ == "__main__":

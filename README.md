@@ -7,7 +7,7 @@ An always-on Discord worker for one server, built with Python and discord.py. R-
 - One R-coin for an eligible member message, with a persistent 30-second per-member cooldown. Bot, webhook, system and other-server messages are ignored.
 - `/daily`: 100 R-coins every rolling 24 hours; restarting cannot bypass the cooldown.
 - Owner-only balance set, add/subtract, reset, and bulk changes. Administrator/role permissions do not grant these controls; only `OWNER_ID` does.
-- Owner-created role shop and file/video packages; member-created marketplace packages restricted to the owner's chosen channel.
+- Owner-created role shop and file/video packages; member-created marketplace packages restricted to the owner's chosen channel. New listings post a public description card with a persistent Buy button in that channel.
 - Atomic purchases: buyer debit, seller credit (marketplace only), ledger entry and permanent purchase entitlement commit together. Repeat buys cannot double-charge. Official shop purchases remove coins from circulation.
 - Private file delivery, persistent inventory, free redelivery, withdrawn listings preserving previous purchases, listing pagination and leaderboard.
 - SQL migrations, exact dependency locks, Docker worker, persistent volumes, restart policy, signal handling, structured event logs, health checks, backups, restore verification and CI.
@@ -19,7 +19,7 @@ The marketplace pays sellers **R-coins**, not real money. Each listing has one a
 1. Open <https://discord.com/developers/applications> and select **New Application**. Name it **Redline Society bot**.
 2. Open **Bot**. Create/reset the token as needed. Save it privately; never commit it or paste it into a message. If exposed, reset it immediately in this portal.
 3. This bot uses slash commands and message events without reading message text. **Message Content** and **Server Members** privileged intents are not required. It can reward messages in channels it can see.
-4. Under **Installation** or **OAuth2 > URL Generator**, select scopes `bot` and `applications.commands`. Request **View Channels**, **Send Messages**, **Attach Files**, and **Manage Roles**. Invite it to your server. Do not give it Administrator.
+4. Under **Installation** or **OAuth2 > URL Generator**, select scopes `bot` and `applications.commands`. Request **View Channels**, **Send Messages**, **Embed Links**, **Attach Files**, and **Manage Roles**. Invite it to your server. Do not give it Administrator.
 5. In Discord **Server Settings > Roles**, move the bot's role above any cosmetic roles you want to sell. Selling roles that have moderation/administration permissions is rejected.
 6. In Discord **User Settings > Advanced**, enable **Developer Mode**. Right-click your server and choose **Copy Server ID** for `GUILD_ID`. Right-click your own user and choose **Copy User ID** for `OWNER_ID`.
 7. Fill those values in a private `.env` file locally or your hosting service's secret/environment settings. Do not put the token in GitHub Actions: CI does not need it.
@@ -61,19 +61,21 @@ notepad .env
 | `/buy item_id` | Purchase and deliver an item; repeat calls never charge again |
 | `/inventory [page]` | Your permanent purchases |
 | `/download item_id` | Retry/retrieve a purchased file or role free of charge |
-| `/sell title price file` | List a member package in the market channel |
+| `/sell title price file [description]` | Post a public package card with a Buy button in the selected market channel |
 | `/remove item_id` | Seller withdraws own market item; owner can withdraw any item |
+| `/listing_edit item_id [price] [description]` | Owner only: change any active listing's price/description and refresh its card |
+| `/listing_post item_id` | Owner only: publish an older/unposted listing in the selected channel |
 | `/race` | Free practice lap, no stakes or rewards |
 | `/coins member mode amount` | Owner only: `set`, `add` (negative subtracts), or `reset` |
 | `/coins_all mode confirmation amount` | Owner only; enter `CONFIRM ALL` exactly |
 | `/market_channel channel` | Owner only: select marketplace channel |
-| `/role_add role price` | Owner only: list a cosmetic role |
-| `/pack_add title price file` | Owner only: upload official package |
+| `/role_add role price [description]` | Owner only: list a cosmetic role and post its card when a channel is selected |
+| `/pack_add title price file [description]` | Owner only: upload official package and post its card when a channel is selected |
 | `/help` | Quick guide |
 
 Bulk balance operations affect **existing accounts**, not every Discord member who has never interacted with the bot. New accounts start at zero. Balance resets preserve daily/message cooldowns, purchases, listings, and files. Official listings are immutable: withdraw and create a new listing to change a price/file. Previous buyers retain their old purchase. Owner balance changes are recorded in the `ledger` table with the actor's ID.
 
-All command responses are ephemeral. Members discover marketplace items using `/market` in the selected channel. Slash attachment uploads are saved to persistent storage immediately, so the original Discord upload URL expiring does not remove the package.
+Command responses are private; listing cards are public in the channel selected by `/market_channel`. Select that channel before adding listings. A member's `/sell` posts automatically; official listings also post there when the channel is configured. Older listings can be published with `/listing_post`. The Buy button delivers privately and uses the same atomic purchase logic as `/buy`. Cards retain working buttons across bot restarts while the database and file storage survive; a withdrawn card has its button removed. The owner can edit any active listing, including a member listing, or remove any listing. Slash attachment uploads are saved to persistent storage immediately, so the original Discord upload URL expiring does not remove the package.
 
 ## GitHub: create the private repository and upload
 

@@ -110,18 +110,20 @@ class Store:
 
     def add_listing(self, actor: int, title: str, price: int, kind: str,
                     role_id: int | None = None, file_name: str | None = None,
-                    original_name: str | None = None) -> int:
+                    original_name: str | None = None, description: str = "") -> int:
         if kind in {"role", "pack"}:
             self.owner(actor)
         if kind not in {"role", "pack", "market"} or not 1 <= price <= 1_000_000_000:
             raise UserError("Invalid listing type or price.")
         if not 1 <= len(title.strip()) <= 80:
             raise UserError("Title must be 1–80 characters.")
+        if len(description) > 500:
+            raise UserError("Description must be 500 characters or fewer.")
         if (kind == "role" and not role_id) or (kind != "role" and not file_name):
             raise UserError("Listing requires a role or an uploaded file.")
-        cursor = self.db.execute("INSERT INTO listings(seller_id,title,price,kind,role_id,file_name,original_name,created_at) VALUES (?,?,?,?,?,?,?,?)",
+        cursor = self.db.execute("INSERT INTO listings(seller_id,title,price,kind,role_id,file_name,original_name,created_at,description) VALUES (?,?,?,?,?,?,?,?,?)",
                                  (str(actor), title.strip(), price, kind, str(role_id) if role_id else None,
-                                  file_name, original_name, time.time()))
+                                  file_name, original_name, time.time(), description.strip()))
         assert cursor.lastrowid is not None
         return cursor.lastrowid
 
@@ -162,6 +164,30 @@ class Store:
         if str(actor) != self.owner_id and not (item["kind"] == "market" and item["seller_id"] == str(actor)):
             raise UserError("Only the owner or this marketplace seller can remove it.")
         self.db.execute("UPDATE listings SET active=0 WHERE id=?", (listing_id,))
+
+    def set_post(self, listing_id: int, channel_id: int, message_id: int) -> None:
+        self.db.execute("UPDATE listings SET post_channel_id=?, post_message_id=? WHERE id=?",
+                        (str(channel_id), str(message_id), listing_id))
+
+    def posted_active(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self.db.execute(
+            "SELECT * FROM listings WHERE active=1 AND post_message_id IS NOT NULL").fetchall()]
+
+    def edit_listing(self, actor: int, listing_id: int, price: int | None,
+                     description: str | None) -> None:
+        self.owner(actor)
+        item = self.listing(listing_id)
+        if not item["active"]:
+            raise UserError("This listing is withdrawn.")
+        if price is None and description is None:
+            raise UserError("Provide a price or description to change.")
+        if price is not None and not 1 <= price <= 1_000_000_000:
+            raise UserError("Price must be between 1 and 1,000,000,000.")
+        if description is not None and len(description) > 500:
+            raise UserError("Description must be 500 characters or fewer.")
+        self.db.execute("UPDATE listings SET price=?, description=? WHERE id=?",
+                        (price if price is not None else item["price"],
+                         description.strip() if description is not None else item["description"], listing_id))
 
     def inventory(self, user: int, page: int) -> list[dict[str, Any]]:
         return [dict(r) for r in self.db.execute("SELECT l.* FROM listings l JOIN purchases p ON l.id=p.listing_id WHERE p.user_id=? ORDER BY p.id DESC LIMIT 10 OFFSET ?",
