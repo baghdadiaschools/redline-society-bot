@@ -23,15 +23,22 @@ def safe_title(value: str) -> str:
     return discord.utils.escape_markdown(discord.utils.escape_mentions(value))
 
 
+class PurchaseButton(discord.ui.Button["BuyButton"]):
+    def __init__(self, view: "BuyButton", listing_id: int):
+        super().__init__(label="Buy with R-coins", style=discord.ButtonStyle.green,
+                         custom_id=f"redline:buy:{listing_id}")
+        self.owner_view = view
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.owner_view.buy(interaction)
+
+
 class BuyButton(discord.ui.View):
     def __init__(self, bot: "Bot", listing_id: int):
         super().__init__(timeout=None)
         self.bot = bot
         self.listing_id = listing_id
-        button = discord.ui.Button(label="Buy with R-coins", style=discord.ButtonStyle.green,
-                                   custom_id=f"redline:buy:{listing_id}")
-        button.callback = self.buy
-        self.add_item(button)
+        self.add_item(PurchaseButton(self, listing_id))
 
     async def buy(self, interaction: discord.Interaction) -> None:
         try:
