@@ -84,7 +84,7 @@ class Bot(discord.Client):
                     await self.marketplace.deliver(message.author, int(args[0]))
                     await message.reply("Order delivered to your DMs.", mention_author=False)
                 elif command.lower() == "help":
-                    await message.reply("Coins: /daily /balance /leaderboard; owner: /coins /coins_all. Staff: /warn /kick /mute /ban /role give /role delete /history. Marketplace: ?marketplace channel #channel; ?marketrole add or remove; owner DM ?marketplace item add or remove; buyers use product buttons, ?orders and ?claim ORDER_ID. Games: ?roulette and ?blackjack are free practice with no stakes or rewards.", mention_author=False)
+                    await message.reply("Coins: /daily /balance /leaderboard; owner: /coins /coins_all. Staff: /warn /kick /mute /ban /role give /role delete /history; owner: /unwarn case_number. Marketplace: ?marketplace channel #channel; ?marketrole add or remove; owner DM ?marketplace item add or remove; buyers use product buttons, ?orders and ?claim ORDER_ID. Games: ?roulette and ?blackjack are free practice with no stakes or rewards.", mention_author=False)
                 elif command.lower() in {"roulette", "blackjack"}:
                     await message.reply("Free practice: " + (f"Roulette landed on {random.randrange(37)}." if command.lower() == "roulette" else f"Blackjack practice hand: {random.randint(12,21)}. No R-coins are spent or awarded."), mention_author=False)
             except (UserError, ValueError, IndexError) as exc:
@@ -134,7 +134,7 @@ class Bot(discord.Client):
         if task:
             self.active.add(task)
             task.add_done_callback(self.active.discard)
-        await i.response.defer(ephemeral=True, thinking=True)
+        await i.response.defer(ephemeral=False, thinking=True)
 
     async def moderate(self, i: discord.Interaction, target: discord.Member, action: str,
                        reason: str = "No reason provided", length: str = "",
@@ -145,7 +145,7 @@ class Bot(discord.Client):
         self.moderation.check_target(i.user, target, action)
         await self.begin(i)
         result = await self.moderation.action(i.guild, i.user, target, action, reason, length, role)
-        await i.followup.send(result, ephemeral=True)
+        await i.followup.send(result, ephemeral=False)
 
     async def backup_loop(self) -> None:
         while not self.is_closed():
@@ -207,6 +207,12 @@ class Bot(discord.Client):
         async def history(i: discord.Interaction, member: discord.Member) -> None:
             await self.moderate(i, member, "history")
 
+        @tree.command(name="unwarn", description="Owner only: remove a warning by case number", guild=guild)
+        async def unwarn(i: discord.Interaction, case_number: int, reason: str = "No reason provided") -> None:
+            await self.begin(i, owner=True)
+            result = self.moderation.remove_warning(i.user.id, case_number, reason)
+            await i.followup.send(result, ephemeral=False)
+
         role_group = app_commands.Group(name="role", description="Staff role management")
 
         @role_group.command(name="give", description="Give a member a role")
@@ -225,26 +231,26 @@ class Bot(discord.Client):
         async def balance(i: discord.Interaction, member: discord.Member | None = None) -> None:
             await self.begin(i)
             user = member or i.user
-            await i.followup.send(f"{safe_title(user.display_name)}: **{self.store.balance(user.id):,} R-coins**", ephemeral=True)
+            await i.followup.send(f"{safe_title(user.display_name)}: **{self.store.balance(user.id):,} R-coins**", ephemeral=False)
 
         @tree.command(name="daily", description="Claim 100 R-coins every 24 hours", guild=guild)
         async def daily(i: discord.Interaction) -> None:
             await self.begin(i)
             claimed = self.store.reward(i.user.id, daily=True)
-            await i.followup.send("You received 100 R-coins!" if claimed else "Daily reward is on cooldown or your balance is full.", ephemeral=True)
+            await i.followup.send("You received 100 R-coins!" if claimed else "Daily reward is on cooldown or your balance is full.", ephemeral=False)
 
         @tree.command(name="leaderboard", description="Top ten R-coin balances", guild=guild)
         async def leaderboard(i: discord.Interaction) -> None:
             await self.begin(i)
             rows = self.store.db.execute("SELECT user_id,balance FROM accounts ORDER BY balance DESC LIMIT 10").fetchall()
-            await i.followup.send("**R-coin leaderboard**\n" + ("\n".join(f"{n}. <@{r[0]}> - {r[1]:,}" for n, r in enumerate(rows, 1)) or "No balances yet."), ephemeral=True)
+            await i.followup.send("**R-coin leaderboard**\n" + ("\n".join(f"{n}. <@{r[0]}> - {r[1]:,}" for n, r in enumerate(rows, 1)) or "No balances yet."), ephemeral=False)
 
         @tree.command(name="coins", description="Owner only: adjust one member's balance", guild=guild)
         async def coins(i: discord.Interaction, member: discord.Member,
                         mode: Literal["set", "add", "reset"], amount: int = 0) -> None:
             await self.begin(i, owner=True)
             self.store.adjust(i.user.id, member.id, mode, amount)
-            await i.followup.send(f"Balance now: {self.store.balance(member.id):,} R-coins.", ephemeral=True)
+            await i.followup.send(f"Balance now: {self.store.balance(member.id):,} R-coins.", ephemeral=False)
 
         @tree.command(name="coins_all", description="Owner only: adjust all existing balances", guild=guild)
         async def coins_all(i: discord.Interaction, mode: Literal["set", "add", "reset"],
@@ -253,9 +259,9 @@ class Bot(discord.Client):
             if confirmation != "CONFIRM ALL":
                 raise UserError("Enter CONFIRM ALL exactly.")
             count = self.store.adjust(i.user.id, None, mode, amount)
-            await i.followup.send(f"Updated {count} existing accounts.", ephemeral=True)
+            await i.followup.send(f"Updated {count} existing accounts.", ephemeral=False)
 
         @tree.command(name="help", description="Redline Society command guide", guild=guild)
         async def help_command(i: discord.Interaction) -> None:
             await self.begin(i)
-            await i.followup.send("**Redline Society**\nEarn 1 R-coin per eligible message (30s cooldown). /daily gives 100 every 24h.\n/balance /leaderboard /coins /coins_all\nStaff: /warn /kick /mute /ban /role give /role delete /history (required staff roles only)\nMarketplace: public Buy buttons, ?orders, ?claim ORDER_ID\nOwner: ?marketplace channel #channel; ?marketrole add or remove; DM ?marketplace item add or remove\n?roulette and ?blackjack are free practice without stakes or rewards.", ephemeral=True)
+            await i.followup.send("**Redline Society**\nEarn 1 R-coin per eligible message (30s cooldown). /daily gives 100 every 24h.\n/balance /leaderboard /coins /coins_all\nStaff: /warn /kick /mute /ban /role give /role delete /history (required staff roles only)\nOwner: /unwarn case_number\nMarketplace: public Buy buttons, ?orders, ?claim ORDER_ID\nOwner: ?marketplace channel #channel; ?marketrole add or remove; DM ?marketplace item add or remove\n?roulette and ?blackjack are free practice without stakes or rewards.", ephemeral=False)

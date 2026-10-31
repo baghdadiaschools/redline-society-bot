@@ -35,9 +35,9 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_all_commands_serialize_without_token(self):
         commands = self.bot.tree.get_commands(guild=self.bot.guild_scope)
-        self.assertEqual(len(commands), 12)
+        self.assertEqual(len(commands), 13)
         self.assertEqual({c.name for c in commands}, {"balance", "daily", "leaderboard", "coins", "coins_all", "help",
-                                                      "warn", "kick", "mute", "ban", "role", "history"})
+                                                      "warn", "kick", "mute", "ban", "role", "history", "unwarn"})
         for command in commands:
             payload = command.to_dict(self.bot.tree)
             self.assertTrue(payload["name"])
@@ -50,8 +50,10 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
         answer = i.followup.send.call_args.args[0]
         for old in ("/shop", "/market", "/buy", "/sell", "/inventory", "/download", "/remove", "/race"):
             self.assertNotIn(old, answer)
-        for command in ("/warn", "/kick", "/mute", "/ban", "/role give", "/role delete", "/history"):
+        for command in ("/warn", "/kick", "/mute", "/ban", "/role give", "/role delete", "/history", "/unwarn"):
             self.assertIn(command, answer)
+        self.assertFalse(i.response.defer.call_args.kwargs["ephemeral"])
+        self.assertFalse(i.followup.send.call_args.kwargs["ephemeral"])
 
     async def test_moderation_rejects_unprivileged_user_before_acknowledging(self):
         import discord
@@ -64,6 +66,21 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(UserError):
             await self.bot.moderate(i, MagicMock(), "ban", "test")
         i.response.defer.assert_not_awaited()
+
+    async def test_warning_is_public_and_has_case_number(self):
+        import discord
+        i = self.interaction(user=1)
+        i.guild = MagicMock()
+        i.user = MagicMock(spec=discord.Member)
+        i.user.id = 1
+        target = MagicMock(spec=discord.Member)
+        target.id = 2
+        target.bot = False
+        target.mention = "<@2>"
+        await self.bot.moderate(i, target, "warn", "spam")
+        self.assertFalse(i.response.defer.call_args.kwargs["ephemeral"])
+        self.assertFalse(i.followup.send.call_args.kwargs["ephemeral"])
+        self.assertIn("Case #1", i.followup.send.call_args.args[0])
 
     async def test_wrong_guild_and_non_owner_rejected(self):
         with self.assertRaises(UserError):

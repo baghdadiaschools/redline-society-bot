@@ -11,7 +11,7 @@ Python Discord bot for one server. R-coins are community points. The old member 
 
 ## Coins and commands
 
-Members gain 1 R-coin for each eligible server message, with a 30-second per-member cooldown. `/daily` gives 100 every 24 hours. Bots, webhooks, other servers and DMs do not earn coins. `/balance [member]` and `/leaderboard` show balances. Owner-only `/coins member mode amount` and `/coins_all mode confirmation amount` adjust balances; bulk changes require `CONFIRM ALL` exactly. Slash replies are private.
+Members gain 1 R-coin for each eligible server message, with a 30-second per-member cooldown. `/daily` gives 100 every 24 hours. Bots, webhooks, other servers and DMs do not earn coins. `/balance [member]` and `/leaderboard` show balances. Owner-only `/coins member mode amount` and `/coins_all mode confirmation amount` adjust balances; bulk changes require `CONFIRM ALL` exactly. Slash command results are posted to the channel. Permission-denied responses remain private; purchase files and buyer DMs remain private.
 
 ### Moderation (server messages)
 
@@ -23,9 +23,10 @@ Members gain 1 R-coin for each eligible server message, with a 30-second per-mem
 | `/ban member reason` | `1565768824404443346` | Permanent ban |
 | `/role give member role [reason]` | `1565768824404443346` or `1565778010546638949` | Add a role |
 | `/role delete member role reason` | Same two IDs | Remove a role |
-| `/history member` | `1565764096773849210` | Show up to 20 recent actions performed **through this bot** |
+| `/history member` | `1565764096773849210` | Show up to 20 recent bot actions with case numbers |
+| `/unwarn case_number [reason]` | Owner only | Remove an active warning by case number; keep an unwarn audit record |
 
-The configured owner may use moderation commands too. Discord may show these slash commands in the picker to other members, but the bot checks the exact required role ID before executing them and replies privately when access is denied. These role IDs are exact, not permission inheritance. The bot refuses to target itself, the owner, or a member above the moderator's role. Discord's role hierarchy and actual bot permissions provide another check. `?history` cannot reconstruct moderation performed outside this bot or before the database existed.
+The configured owner may use moderation commands too. Discord may show these slash commands in the picker to other members, but the bot checks the exact required role ID before executing them and replies privately when access is denied. Successful moderation commands post in the channel, including case numbers. Use `/history member` to find a warning case and `/unwarn case_number` to remove it; the owner alone can do so. These role IDs are exact, not permission inheritance. The bot refuses to target itself, the owner, or a member above the moderator's role. Discord's role hierarchy and actual bot permissions provide another check. `/history` cannot reconstruct moderation performed outside this bot or before the database existed.
 
 ### Owner marketplace
 
@@ -70,4 +71,5 @@ docker compose logs --tail=100 -f bot
 The Dockerfile and `compose.yaml` use persistent named volumes for SQLite and materials, and for backup ZIPs. Do not run `docker compose down -v`, rename the volumes, commit `.env`, or copy the live SQLite file without using the backup tool. To update: wait for green GitHub Actions, run `docker compose exec bot python -m redline.backup create`, copy backups off-host, `git pull --ff-only`, `docker compose build`, then `docker compose up -d --no-deps bot`. Verify old orders and balances afterward. Logs are rotated; the worker restarts after crashes and host reboot, handles SIGTERM, and makes automatic SQLite-consistent backups. Single replica only.
 
 Environment defaults: `DATA_DIR=./data`, `BACKUP_DIR=./backups`, `BACKUP_INTERVAL_HOURS=24`, `BACKUP_KEEP=7`, `MAX_UPLOAD_MB=8`, `STORAGE_LIMIT_MB=2048`, `LOG_LEVEL=INFO`. Data and backup directories must be separate and persistent. Keep backups off-host and private because they contain purchase files and member data. Run `python -m unittest discover -s tests -v`, `python -m mypy src`, and `python scripts/build.py` for development; GitHub Actions checks them without production secrets.
+
 

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from redline.moderation import duration, has_role, WARN_ROLE, BAN_ROLE, ROLE_ROLES
+from redline.moderation import duration, has_role, Moderation, WARN_ROLE, BAN_ROLE, ROLE_ROLES
 from redline.store import Store, UserError
 from redline.backup import create_backup
 import zipfile
@@ -62,6 +62,26 @@ class NewMarketplaceTests(unittest.TestCase):
         self.assertTrue(has_role(member, {WARN_ROLE}, 1))
         self.assertFalse(has_role(member, {BAN_ROLE}, 1))
         self.assertFalse(has_role(member, ROLE_ROLES, 1))
+
+    def test_owner_removes_only_warning_case_and_keeps_audit(self):
+        from unittest.mock import MagicMock
+        moderation = Moderation(self.store, 1)
+        actor, target = MagicMock(), MagicMock()
+        actor.id, target.id = 1, 2
+        case = moderation.record(actor, target, "warn", "spam")
+        other = moderation.record(actor, target, "mute", "timeout")
+        with self.assertRaises(UserError):
+            moderation.remove_warning(3, case, "unauthorized")
+        with self.assertRaises(UserError):
+            moderation.remove_warning(1, other, "wrong type")
+        self.assertIn(f"#{case}", moderation.remove_warning(1, case, "appeal accepted"))
+        self.assertIsNone(self.store.db.execute("SELECT 1 FROM moderation_actions WHERE id=?", (case,)).fetchone())
+        self.assertIsNotNone(self.store.db.execute("SELECT 1 FROM moderation_actions WHERE id=?", (other,)).fetchone())
+        audit = self.store.db.execute("SELECT action,reason FROM moderation_actions WHERE target_id='2' ORDER BY id DESC LIMIT 1").fetchone()
+        self.assertEqual(audit["action"], "unwarn")
+        self.assertIn(f"case #{case}", audit["reason"])
+        with self.assertRaises(UserError):
+            moderation.remove_warning(1, case, "again")
 
     def test_private_product_file_is_in_backup(self):
         data = Path(self.temp.name)

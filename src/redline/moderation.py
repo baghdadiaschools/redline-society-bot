@@ -41,9 +41,27 @@ class Moderation:
         if not has_role(actor, allowed, self.owner_id):
             raise UserError("You do not have the required staff role.")
 
-    def record(self, actor: discord.Member, target: discord.Member, action: str, reason: str) -> None:
-        self.store.db.execute("INSERT INTO moderation_actions(target_id,actor_id,action,reason,created_at) VALUES (?,?,?,?,?)",
-                              (str(target.id), str(actor.id), action, reason[:500], time.time()))
+    def record(self, actor: discord.Member, target: discord.Member, action: str, reason: str) -> int:
+        cursor = self.store.db.execute("INSERT INTO moderation_actions(target_id,actor_id,action,reason,created_at) VALUES (?,?,?,?,?)",
+                                       (str(target.id), str(actor.id), action, reason[:500], time.time()))
+        assert cursor.lastrowid is not None
+        return cursor.lastrowid
+
+    def remove_warning(self, actor_id: int, case_number: int, reason: str) -> str:
+        self.store.owner(actor_id)
+        if case_number <= 0:
+            raise UserError("Enter a valid warning case number.")
+        with self.store.transaction():
+            row = self.store.db.execute(
+                "SELECT target_id FROM moderation_actions WHERE id=? AND action='warn'",
+                (case_number,)).fetchone()
+            if row is None:
+                raise UserError("That case is not an active warning.")
+            self.store.db.execute("DELETE FROM moderation_actions WHERE id=? AND action='warn'", (case_number,))
+            self.store.db.execute(
+                "INSERT INTO moderation_actions(target_id,actor_id,action,reason,created_at) VALUES (?,?,?,?,?)",
+                (row["target_id"], str(actor_id), "unwarn", f"Removed warning case #{case_number}: {reason.strip() or 'No reason provided'}"[:500], time.time()))
+        return f"Warning case #{case_number} removed for <@{row['target_id']}>."
 
     def check_target(self, actor: discord.Member, target: discord.Member, action: str) -> None:
         self.authorize(actor, action)
@@ -51,7 +69,7 @@ class Moderation:
             return
         if target.id == actor.id or target.id == self.owner_id or target.bot:
             raise UserError("This target cannot be moderated with this command.")
-        if target.top_role >= actor.top_role and actor.id != self.owner_id:
+        if actor.id != self.owner_id and target.top_role >= actor.top_role:
             raise UserError("You cannot moderate a member with an equal or higher role.")
 
     async def action(self, guild: discord.Guild, actor: discord.Member, target: discord.Member,
@@ -60,9 +78,9 @@ class Moderation:
         self.check_target(actor, target, action)
         if action == "history":
             rows = self.store.db.execute(
-                "SELECT actor_id,action,reason,created_at FROM moderation_actions WHERE target_id=? ORDER BY id DESC LIMIT 20",
+                "SELECT id,actor_id,action,reason,created_at FROM moderation_actions WHERE target_id=? ORDER BY id DESC LIMIT 20",
                 (str(target.id),)).fetchall()
-            lines = [f"{r['action']} by {r['actor_id']} | {r['reason']} | <t:{int(r['created_at'])}:f>" for r in rows]
+            lines = [f"Case #{r['id']} {r['action']} by {r['actor_id']} | {r['reason']} | <t:{int(r['created_at'])}:f>" for r in rows]
             report = "Recent bot moderation history for this member:\n" + ("\n".join(lines) or "No recorded actions.")
             return report if len(report) <= 1900 else report[:1860] + "\n… Older entries were omitted."
 
@@ -94,5 +112,5 @@ class Moderation:
             recorded = action
         else:
             raise UserError("Unknown moderation action.")
-        self.record(actor, target, recorded, reason)
-        return f"Recorded {action.replace('_', ' ')} for {target.mention}."
+        case = self.record(actor, target, recorded, reason)
+        return f"Recorded {action.replace('_', ' ')} for {target.mention}. Case #{case}."
