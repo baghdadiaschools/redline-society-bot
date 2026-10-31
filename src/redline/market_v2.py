@@ -1,5 +1,5 @@
 import asyncio
-from contextlib import closing
+import logging
 from pathlib import Path
 import re
 import uuid
@@ -7,6 +7,8 @@ import uuid
 import discord
 
 from .store import Store, UserError
+
+log = logging.getLogger("redline.marketplace")
 
 
 class BuyView(discord.ui.View):
@@ -114,11 +116,12 @@ class Marketplace:
             await member.add_roles(role, reason=f"Redline order #{order_id}")
             await user.send(f"Your role purchase #{order_id} was delivered: {role.name}.")
         else:
+            entries = self.store.product_files(row[0], "private")
+            if not entries or any(not (self.materials / f["stored_name"]).is_file() for f in entries):
+                raise UserError("Private files are unavailable. Contact the owner.")
             files = [discord.File(self.materials / file["stored_name"], filename=file["original_name"])
-                     for file in self.store.product_files(row[0], "private")]
+                     for file in entries]
             try:
-                if not files or any(not (self.materials / f["stored_name"]).is_file() for f in self.store.product_files(row[0], "private")):
-                    raise UserError("Private files are unavailable. Contact the owner.")
                 await user.send(f"Your private files for **{item['title']}** (order #{order_id}):", files=files)
             finally:
                 for file in files:
@@ -133,10 +136,11 @@ class Marketplace:
             item = self.store.product(product_id)
             if item["kind"] == "role":
                 guild = interaction.guild
-                if guild is None or (role := guild.get_role(int(item["role_id"]))) is None or guild.me is None or role >= guild.me.top_role:
+                if guild is None or (role := guild.get_role(int(item["role_id"]))) is None or guild.me is None or role >= guild.me.top_role or not guild.me.guild_permissions.manage_roles:
                     raise UserError("Role unavailable or above the bot's role. No coins charged.")
             else:
-                if any(not (self.materials / f["stored_name"]).is_file() for f in self.store.product_files(product_id, "private")):
+                entries = self.store.product_files(product_id, "private")
+                if not entries or any(not (self.materials / f["stored_name"]).is_file() for f in entries):
                     raise UserError("Private files unavailable. No coins charged.")
             user = interaction.user
             await user.create_dm()
@@ -156,6 +160,9 @@ class Marketplace:
             await interaction.followup.send(str(exc), ephemeral=True)
         except discord.HTTPException:
             await interaction.followup.send("Discord could not finish this action. Check your orders and DMs.", ephemeral=True)
+        except Exception:
+            log.exception("purchase_failed product_id=%s", product_id)
+            await interaction.followup.send("Purchase could not finish. DM ?orders to check whether an order was created.", ephemeral=True)
 
     async def owner_command(self, message: discord.Message, text: str) -> bool:
         if not (text.startswith("marketrole ") or text.startswith("marketplace ")):
@@ -181,7 +188,7 @@ class Marketplace:
                 raise UserError("Use ?marketrole add @role PRICE")
             role, price = message.role_mentions[0], int(parts[-1])
             if message.guild.me is None or role >= message.guild.me.top_role or role.managed or any(
-                getattr(role.permissions, flag) for flag in ("administrator", "manage_roles", "ban_members", "kick_members", "manage_guild")):
+                getattr(role.permissions, flag) for flag in ("administrator", "manage_roles", "ban_members", "kick_members", "manage_guild", "moderate_members", "manage_channels", "manage_messages", "manage_webhooks")):
                 raise UserError("Only cosmetic roles below the bot's role may be sold.")
             product = self.store.add_product(self.owner_id, "role", role.name, "Cosmetic server role", price,
                                              "once", None, int(channel_id), role.id)

@@ -5,8 +5,10 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from redline.moderation import duration
+from redline.moderation import duration, has_role, WARN_ROLE, BAN_ROLE, ROLE_ROLES
 from redline.store import Store, UserError
+from redline.backup import create_backup
+import zipfile
 
 
 class NewMarketplaceTests(unittest.TestCase):
@@ -51,3 +53,22 @@ class NewMarketplaceTests(unittest.TestCase):
         for text in ("0m", "29d", "1w", "abc"):
             with self.assertRaises(UserError):
                 duration(text)
+
+    def test_exact_moderator_roles(self):
+        from unittest.mock import MagicMock
+        member = MagicMock()
+        member.id = 2
+        member.roles = [MagicMock(id=WARN_ROLE)]
+        self.assertTrue(has_role(member, {WARN_ROLE}, 1))
+        self.assertFalse(has_role(member, {BAN_ROLE}, 1))
+        self.assertFalse(has_role(member, ROLE_ROLES, 1))
+
+    def test_private_product_file_is_in_backup(self):
+        data = Path(self.temp.name)
+        (data / "materials").mkdir()
+        (data / "materials" / "secret").write_bytes(b"private pack")
+        self.store.add_product(1, "item", "Pack", "", 10, "once", None, 100,
+                               files=[("secret", "pack.zip", "private")])
+        archive = create_backup(data, data / "backups")
+        with zipfile.ZipFile(archive) as saved:
+            self.assertEqual(saved.read("materials/secret"), b"private pack")

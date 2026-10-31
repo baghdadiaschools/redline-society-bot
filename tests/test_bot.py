@@ -36,9 +36,19 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
     async def test_all_commands_serialize_without_token(self):
         commands = self.bot.tree.get_commands(guild=self.bot.guild_scope)
         self.assertEqual(len(commands), 6)
+        self.assertEqual({c.name for c in commands}, {"balance", "daily", "leaderboard", "coins", "coins_all", "help"})
         for command in commands:
             payload = command.to_dict(self.bot.tree)
             self.assertTrue(payload["name"])
+
+    async def test_help_omits_old_market_commands(self):
+        help_command = self.bot.tree.get_command("help", guild=self.bot.guild_scope)
+        assert help_command is not None
+        i = self.interaction()
+        await help_command.callback(i)
+        answer = i.followup.send.call_args.args[0]
+        for old in ("/shop", "/market", "/buy", "/sell", "/inventory", "/download", "/remove", "/race"):
+            self.assertNotIn(old, answer)
 
     async def test_wrong_guild_and_non_owner_rejected(self):
         with self.assertRaises(UserError):

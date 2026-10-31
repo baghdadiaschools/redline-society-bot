@@ -74,7 +74,7 @@ class Moderation:
             bot_member = message.guild.me or await message.guild.fetch_member(int(bot_id))
             if role.managed or role >= bot_member.top_role or role >= actor.top_role and actor.id != self.owner_id:
                 raise UserError("That role is above your role or the bot's role.")
-            reason = " ".join(args[2:]).strip() or "No reason provided"
+            reason = (" ".join(args[2:]).strip() or "No reason provided")[:500]
             if action == "give":
                 await target.add_roles(role, reason=reason)
             else:
@@ -88,10 +88,10 @@ class Moderation:
                 if not parts:
                     raise UserError("Use ?mute @member 30m reason")
                 length = duration(parts[0])
-                reason = parts[1] if len(parts) > 1 else "No reason provided"
+                reason = (parts[1] if len(parts) > 1 else "No reason provided")[:500]
                 await target.timeout(length, reason=reason)
             else:
-                reason = remainder or "No reason provided"
+                reason = (remainder or "No reason provided")[:500]
                 if command == "kick":
                     await target.kick(reason=reason)
                 elif command == "ban":

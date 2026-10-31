@@ -110,11 +110,11 @@ class Bot(discord.Client):
         elif isinstance(original, app_commands.CommandOnCooldown):
             text = f"Try again in {original.retry_after:.0f} seconds."
         elif isinstance(original, discord.HTTPException):
-            text = "Discord could not complete delivery. If charged, use /download to retry at no cost. Check bot permissions and file limits."
+            text = "Discord could not complete that action. Check bot permissions and DMs. For item delivery, DM ?orders and ?claim ORDER_ID."
             log.warning("discord_request_failed status=%s", original.status)
         else:
             # Do not log tokens, signed attachment URLs, file contents, or request payloads.
-            text = "The action could not finish. If you purchased an item, check /inventory and retry /download."
+            text = "The action could not finish. For item delivery, DM ?orders and ?claim ORDER_ID."
             log.error("command_failed type=%s command=%s", type(original).__name__,
                       interaction.command.name if interaction.command else "unknown")
         await self.reply_error(interaction, text)
@@ -215,4 +215,4 @@ class Bot(discord.Client):
         @tree.command(name="help", description="Redline Society command guide", guild=guild)
         async def help_command(i: discord.Interaction) -> None:
             await self.begin(i)
-            await i.followup.send("**Redline Society**\nEarn 1 R-coin per eligible message (30s cooldown). /daily gives 100 every 24h.\n/balance /leaderboard /coins /coins_all\nStaff: ?warn ?kick ?mute ?ban ?role give/delete ?history\nMarketplace: public Buy buttons, ?orders, ?claim ORDER_ID\nOwner: ?marketplace channel #channel; ?marketrole add/remove; DM ?marketplace item add/remove\n?roulette and ?blackjack are free practice without stakes or rewards.", ephemeral=True)
+            await i.followup.send("**Redline Society**\nEarn 1 R-coin per eligible message (30s cooldown). /daily gives 100 every 24h.\n/balance /leaderboard /coins /coins_all\nStaff: ?warn ?kick ?mute ?ban ?role give or delete ?history\nMarketplace: public Buy buttons, ?orders, ?claim ORDER_ID\nOwner: ?marketplace channel #channel; ?marketrole add or remove; DM ?marketplace item add or remove\n?roulette and ?blackjack are free practice without stakes or rewards.", ephemeral=True)

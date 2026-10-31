@@ -33,7 +33,10 @@ def create_backup(data: Path, destination: Path, keep: int = 7) -> Path:
                     src.backup(dst)
                     if dst.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                         raise RuntimeError("Database integrity check failed.")
-                    rows = dst.execute("SELECT DISTINCT file_name FROM listings WHERE file_name IS NOT NULL").fetchall()
+                    if dst.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='product_files'").fetchone():
+                        rows = dst.execute("SELECT DISTINCT file_name FROM listings WHERE file_name IS NOT NULL UNION SELECT DISTINCT stored_name FROM product_files").fetchall()
+                    else:
+                        rows = dst.execute("SELECT DISTINCT file_name FROM listings WHERE file_name IS NOT NULL").fetchall()
                 manifest: dict[str, str] = {}
                 paths = [(snapshot, "bot.db")] + [(data / "materials" / r[0], "materials/" + r[0]) for r in rows]
                 with zipfile.ZipFile(pending, "w", zipfile.ZIP_DEFLATED) as archive:
