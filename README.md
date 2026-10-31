@@ -4,7 +4,7 @@ Python Discord bot for one server. R-coins are community points. The old member 
 
 ## Discord setup
 
-1. In [Discord Developer Portal](https://discord.com/developers/applications), select this application, open **Bot**, and enable **Message Content Intent**. Prefix `?` commands need it. Save changes. The token stays private.
+1. In [Discord Developer Portal](https://discord.com/developers/applications), select this application, open **Bot**, and enable **Message Content Intent**. Marketplace and buyer DM `?` commands need it. Moderation uses slash commands. Save changes. The token stays private.
 2. Grant the bot **View Channels**, **Send Messages**, **Read Message History**, **Embed Links**, **Attach Files**, **Manage Roles**, **Moderate Members**, **Kick Members**, and **Ban Members**. It does not need Administrator. Move its role above roles it must give or remove and members it must moderate. Discord hierarchy and channel permissions still apply.
 3. Keep `DISCORD_TOKEN`, `GUILD_ID` and `OWNER_ID` privately in Render Environment or `.env` on your server. Do not commit them to GitHub.
 4. Invite with `bot` and `applications.commands` scopes. Try `/help` and `?help` in your server.
@@ -17,15 +17,15 @@ Members gain 1 R-coin for each eligible server message, with a 30-second per-mem
 
 | Command | Role ID allowed | Effect |
 | --- | --- | --- |
-| `?warn @member reason` | `1565764096773849210` | Record a warning |
-| `?kick @member reason` | `1565777948840173729` | Kick |
-| `?mute @member 30m reason` | `1565764096773849210` | Discord timeout; use `m`, `h`, or `d`, max 28 days |
-| `?ban @member reason` | `1565768824404443346` | Permanent ban |
-| `?role give @member @role` | `1565768824404443346` or `1565778010546638949` | Add a role |
-| `?role delete @member @role reason` | Same two IDs | Remove a role |
-| `?history @member` | `1565764096773849210` | Show up to 20 recent actions performed **through this bot** |
+| `/warn member reason` | `1565764096773849210` | Record a warning |
+| `/kick member reason` | `1565777948840173729` | Kick |
+| `/mute member length reason` | `1565764096773849210` | Discord timeout; use `m`, `h`, or `d`, max 28 days |
+| `/ban member reason` | `1565768824404443346` | Permanent ban |
+| `/role give member role [reason]` | `1565768824404443346` or `1565778010546638949` | Add a role |
+| `/role delete member role reason` | Same two IDs | Remove a role |
+| `/history member` | `1565764096773849210` | Show up to 20 recent actions performed **through this bot** |
 
-The configured owner may use moderation commands too. These role IDs are exact, not permission inheritance. The bot refuses to target itself, the owner, or a member above the moderator's role. Discord's role hierarchy and actual bot permissions provide another check. `?history` cannot reconstruct moderation performed outside this bot or before the database existed.
+The configured owner may use moderation commands too. Discord may show these slash commands in the picker to other members, but the bot checks the exact required role ID before executing them and replies privately when access is denied. These role IDs are exact, not permission inheritance. The bot refuses to target itself, the owner, or a member above the moderator's role. Discord's role hierarchy and actual bot permissions provide another check. `?history` cannot reconstruct moderation performed outside this bot or before the database existed.
 
 ### Owner marketplace
 
@@ -70,3 +70,4 @@ docker compose logs --tail=100 -f bot
 The Dockerfile and `compose.yaml` use persistent named volumes for SQLite and materials, and for backup ZIPs. Do not run `docker compose down -v`, rename the volumes, commit `.env`, or copy the live SQLite file without using the backup tool. To update: wait for green GitHub Actions, run `docker compose exec bot python -m redline.backup create`, copy backups off-host, `git pull --ff-only`, `docker compose build`, then `docker compose up -d --no-deps bot`. Verify old orders and balances afterward. Logs are rotated; the worker restarts after crashes and host reboot, handles SIGTERM, and makes automatic SQLite-consistent backups. Single replica only.
 
 Environment defaults: `DATA_DIR=./data`, `BACKUP_DIR=./backups`, `BACKUP_INTERVAL_HOURS=24`, `BACKUP_KEEP=7`, `MAX_UPLOAD_MB=8`, `STORAGE_LIMIT_MB=2048`, `LOG_LEVEL=INFO`. Data and backup directories must be separate and persistent. Keep backups off-host and private because they contain purchase files and member data. Run `python -m unittest discover -s tests -v`, `python -m mypy src`, and `python scripts/build.py` for development; GitHub Actions checks them without production secrets.
+

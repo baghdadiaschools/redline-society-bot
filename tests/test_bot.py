@@ -35,8 +35,9 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_all_commands_serialize_without_token(self):
         commands = self.bot.tree.get_commands(guild=self.bot.guild_scope)
-        self.assertEqual(len(commands), 6)
-        self.assertEqual({c.name for c in commands}, {"balance", "daily", "leaderboard", "coins", "coins_all", "help"})
+        self.assertEqual(len(commands), 12)
+        self.assertEqual({c.name for c in commands}, {"balance", "daily", "leaderboard", "coins", "coins_all", "help",
+                                                      "warn", "kick", "mute", "ban", "role", "history"})
         for command in commands:
             payload = command.to_dict(self.bot.tree)
             self.assertTrue(payload["name"])
@@ -49,6 +50,20 @@ class BotTests(unittest.IsolatedAsyncioTestCase):
         answer = i.followup.send.call_args.args[0]
         for old in ("/shop", "/market", "/buy", "/sell", "/inventory", "/download", "/remove", "/race"):
             self.assertNotIn(old, answer)
+        for command in ("/warn", "/kick", "/mute", "/ban", "/role give", "/role delete", "/history"):
+            self.assertIn(command, answer)
+
+    async def test_moderation_rejects_unprivileged_user_before_acknowledging(self):
+        import discord
+        i = self.interaction()
+        i.guild = MagicMock()
+        i.user = MagicMock(spec=discord.Member)
+        i.user.id = 2
+        i.user.roles = []
+        # Exact role gate prevents action even when a slash command is visible.
+        with self.assertRaises(UserError):
+            await self.bot.moderate(i, MagicMock(), "ban", "test")
+        i.response.defer.assert_not_awaited()
 
     async def test_wrong_guild_and_non_owner_rejected(self):
         with self.assertRaises(UserError):

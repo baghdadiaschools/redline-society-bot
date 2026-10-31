@@ -71,8 +71,6 @@ class Bot(discord.Client):
             try:
                 text = message.content[1:].strip()
                 command, *args = text.split()
-                if await self.moderation.run(message, command.lower(), args):
-                    return
                 if await self.marketplace.owner_command(message, text.lower() if text.startswith("marketrole ") or text.startswith("marketplace channel") or text.startswith("marketplace item remove") else text):
                     return
                 if command.lower() == "orders":
@@ -86,7 +84,7 @@ class Bot(discord.Client):
                     await self.marketplace.deliver(message.author, int(args[0]))
                     await message.reply("Order delivered to your DMs.", mention_author=False)
                 elif command.lower() == "help":
-                    await message.reply("Coins: /daily /balance /leaderboard; owner: /coins /coins_all. Staff: ?warn ?kick ?mute ?ban ?role give/delete ?history. Marketplace: ?marketplace channel #channel; ?marketrole add/remove; owner DM ?marketplace item add/remove; buyers use product buttons, ?orders and ?claim ORDER_ID. Games: ?roulette and ?blackjack are free practice with no stakes or rewards.", mention_author=False)
+                    await message.reply("Coins: /daily /balance /leaderboard; owner: /coins /coins_all. Staff: /warn /kick /mute /ban /role give /role delete /history. Marketplace: ?marketplace channel #channel; ?marketrole add or remove; owner DM ?marketplace item add or remove; buyers use product buttons, ?orders and ?claim ORDER_ID. Games: ?roulette and ?blackjack are free practice with no stakes or rewards.", mention_author=False)
                 elif command.lower() in {"roulette", "blackjack"}:
                     await message.reply("Free practice: " + (f"Roulette landed on {random.randrange(37)}." if command.lower() == "roulette" else f"Blackjack practice hand: {random.randint(12,21)}. No R-coins are spent or awarded."), mention_author=False)
             except (UserError, ValueError, IndexError) as exc:
@@ -138,6 +136,17 @@ class Bot(discord.Client):
             task.add_done_callback(self.active.discard)
         await i.response.defer(ephemeral=True, thinking=True)
 
+    async def moderate(self, i: discord.Interaction, target: discord.Member, action: str,
+                       reason: str = "No reason provided", length: str = "",
+                       role: discord.Role | None = None) -> None:
+        # Check the exact staff role before acknowledging or performing any action.
+        if not isinstance(i.user, discord.Member) or i.guild is None:
+            raise UserError("Use this command inside the configured server.")
+        self.moderation.check_target(i.user, target, action)
+        await self.begin(i)
+        result = await self.moderation.action(i.guild, i.user, target, action, reason, length, role)
+        await i.followup.send(result, ephemeral=True)
+
     async def backup_loop(self) -> None:
         while not self.is_closed():
             try:
@@ -178,6 +187,40 @@ class Bot(discord.Client):
     def register_commands(self) -> None:
         tree, guild = self.tree, self.guild_scope
 
+        @tree.command(name="warn", description="Record a staff warning", guild=guild)
+        async def warn(i: discord.Interaction, member: discord.Member, reason: str) -> None:
+            await self.moderate(i, member, "warn", reason)
+
+        @tree.command(name="kick", description="Kick a member from the server", guild=guild)
+        async def kick(i: discord.Interaction, member: discord.Member, reason: str) -> None:
+            await self.moderate(i, member, "kick", reason)
+
+        @tree.command(name="mute", description="Timeout a member for 30m, 2h, or 7d", guild=guild)
+        async def mute(i: discord.Interaction, member: discord.Member, length: str, reason: str) -> None:
+            await self.moderate(i, member, "mute", reason, length)
+
+        @tree.command(name="ban", description="Permanently ban a member", guild=guild)
+        async def ban(i: discord.Interaction, member: discord.Member, reason: str) -> None:
+            await self.moderate(i, member, "ban", reason)
+
+        @tree.command(name="history", description="Show recent bot moderation actions for a member", guild=guild)
+        async def history(i: discord.Interaction, member: discord.Member) -> None:
+            await self.moderate(i, member, "history")
+
+        role_group = app_commands.Group(name="role", description="Staff role management")
+
+        @role_group.command(name="give", description="Give a member a role")
+        async def role_give(i: discord.Interaction, member: discord.Member, role: discord.Role,
+                            reason: str = "No reason provided") -> None:
+            await self.moderate(i, member, "role_give", reason, role=role)
+
+        @role_group.command(name="delete", description="Remove a role from a member")
+        async def role_delete(i: discord.Interaction, member: discord.Member, role: discord.Role,
+                              reason: str) -> None:
+            await self.moderate(i, member, "role_delete", reason, role=role)
+
+        tree.add_command(role_group, guild=guild)
+
         @tree.command(name="balance", description="Check R-coins", guild=guild)
         async def balance(i: discord.Interaction, member: discord.Member | None = None) -> None:
             await self.begin(i)
@@ -215,4 +258,4 @@ class Bot(discord.Client):
         @tree.command(name="help", description="Redline Society command guide", guild=guild)
         async def help_command(i: discord.Interaction) -> None:
             await self.begin(i)
-            await i.followup.send("**Redline Society**\nEarn 1 R-coin per eligible message (30s cooldown). /daily gives 100 every 24h.\n/balance /leaderboard /coins /coins_all\nStaff: ?warn ?kick ?mute ?ban ?role give or delete ?history\nMarketplace: public Buy buttons, ?orders, ?claim ORDER_ID\nOwner: ?marketplace channel #channel; ?marketrole add or remove; DM ?marketplace item add or remove\n?roulette and ?blackjack are free practice without stakes or rewards.", ephemeral=True)
+            await i.followup.send("**Redline Society**\nEarn 1 R-coin per eligible message (30s cooldown). /daily gives 100 every 24h.\n/balance /leaderboard /coins /coins_all\nStaff: /warn /kick /mute /ban /role give /role delete /history (required staff roles only)\nMarketplace: public Buy buttons, ?orders, ?claim ORDER_ID\nOwner: ?marketplace channel #channel; ?marketrole add or remove; DM ?marketplace item add or remove\n?roulette and ?blackjack are free practice without stakes or rewards.", ephemeral=True)
