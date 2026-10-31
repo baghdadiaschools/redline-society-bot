@@ -1,31 +1,10 @@
-# Free Render test deployment
+# Free Render test service
 
-This mode was explicitly selected as a temporary test. Render may sleep, missed
-messages earn no rewards, and restarts/redeployments can erase the entire local
-economy, listings, purchases, materials and backups. It is not the durable worker
-deployment documented in README.md. Do not sell valuable materials in this mode.
+The existing service `srv-db8aqc8u01pc73f57h3g`, still named `baghdadia-school`, is connected to the private Redline Society bot GitHub repository. Pushes to `main` automatically redeploy it. Build command: `python -m pip install -r requirements.lock && python scripts/build.py`. Start command: `PYTHONPATH=src python -m redline.web`. Keep `DISCORD_TOKEN`, `GUILD_ID` and `OWNER_ID` in Render Environment, never in GitHub.
 
-Reuse a free web service by connecting the `redline-society-bot` repository,
-branch `main`, with Python 3 as runtime. Keep the Free compute plan and no disk.
+Prefix commands require **Message Content Intent** enabled in Discord Developer Portal > Bot. The bot also needs View Channels, Send Messages, Read Message History, Embed Links, Attach Files, Manage Roles, Moderate Members, Kick Members and Ban Members; place its role high enough in the hierarchy. A successful deployment logs `Redline Society bot connected`.
 
-Build: `python -m pip install -r requirements.lock && python scripts/build.py`
+Free web services sleep without inbound HTTP traffic; Discord messages do not wake them. Spin-down, restarts and redeploys erase local SQLite, moderation history, coins, orders, product files and backups. Existing public product cards then lose their backing data. This is a test deployment only. Use persistent storage and an always-on service before selling valuable content or relying on permanent balances.
 
-Start: `PYTHONPATH=src python -m redline.web`
-
-Set PYTHON_VERSION=3.13.11, DATA_DIR=./data, BACKUP_DIR=./backups.
-Enter DISCORD_TOKEN, GUILD_ID and OWNER_ID privately in Render Environment.
-The HTTP page reports missing variable names without revealing values. Once
-all three are configured, restart/redeploy the service to connect Discord.
-
-For public listing cards, grant the bot View Channel, Send Messages and Embed
-Links in the selected channel. Run /market_channel first. /sell posts a public
-description card with a Buy button; /role_add and /pack_add post there too.
-The owner can edit any active listing with /listing_edit or withdraw it with
-/remove. /listing_post publishes an existing unposted item. Buttons and cards
-cannot restore listings when Render's free local storage is erased on sleep,
-restart or redeploy; old cards then show an unavailable listing.
-No automatic pings or other attempts to bypass hosting limits are included.
-
-Switching the existing school service to this repository replaces its live
-website. Keep the original repository to allow a later rollback.
+See README.md for the new owner marketplace setup and moderation commands. Do not run the old `/market_channel`, `/role_add`, `/pack_add`, `/shop`, `/market`, `/sell`, `/buy`, `/inventory`, `/download`, `/remove` or `/race` commands; they have been removed from the bot.
 

@@ -193,5 +193,68 @@ class Store:
         return [dict(r) for r in self.db.execute("SELECT l.* FROM listings l JOIN purchases p ON l.id=p.listing_id WHERE p.user_id=? ORDER BY p.id DESC LIMIT 10 OFFSET ?",
                                                (str(user), (page - 1) * 10)).fetchall()]
 
+    def product(self, product_id: int) -> dict[str, Any]:
+        row = self.db.execute("SELECT * FROM products WHERE id=?", (product_id,)).fetchone()
+        if not row:
+            raise UserError("Product not found.")
+        return dict(row)
+
+    def product_files(self, product_id: int, visibility: str) -> list[dict[str, Any]]:
+        return [dict(r) for r in self.db.execute(
+            "SELECT * FROM product_files WHERE product_id=? AND visibility=? ORDER BY id",
+            (product_id, visibility)).fetchall()]
+
+    def products_posted(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self.db.execute(
+            "SELECT * FROM products WHERE active=1 AND message_id IS NOT NULL").fetchall()]
+
+    def add_product(self, actor: int, kind: str, title: str, description: str, price: int,
+                    mode: str, limit: int | None, channel_id: int, role_id: int | None = None,
+                    files: list[tuple[str, str, str]] | None = None) -> int:
+        self.owner(actor)
+        if kind not in {"role", "item"} or mode not in {"once", "repeat", "limited"}:
+            raise UserError("Invalid product type or purchase mode.")
+        if not 1 <= len(title) <= 80 or len(description) > 1000 or not 1 <= price <= 1_000_000_000:
+            raise UserError("Check title (1-80), description (up to 1000), and price.")
+        if mode == "limited" and (limit is None or not 1 <= limit <= 1000):
+            raise UserError("Limited products need a purchase limit of 1-1000.")
+        if kind == "role" and not role_id or kind == "item" and not any(f[2] == "private" for f in files or []):
+            raise UserError("A role or at least one private delivery file is required.")
+        with self.transaction():
+            cursor = self.db.execute("INSERT INTO products(kind,title,description,price,role_id,purchase_mode,purchase_limit,channel_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                                     (kind, title, description, price, str(role_id) if role_id else None,
+                                      mode, limit if mode == "limited" else None, str(channel_id), time.time()))
+            assert cursor.lastrowid is not None
+            product_id = cursor.lastrowid
+            for stored, original, visibility in files or []:
+                self.db.execute("INSERT INTO product_files(product_id,stored_name,original_name,visibility) VALUES (?,?,?,?)",
+                                (product_id, stored, original, visibility))
+        return product_id
+
+    def set_product_message(self, product_id: int, message_id: int) -> None:
+        self.db.execute("UPDATE products SET message_id=? WHERE id=?", (str(message_id), product_id))
+
+    def remove_product(self, actor: int, product_id: int) -> None:
+        self.owner(actor)
+        self.product(product_id)
+        self.db.execute("UPDATE products SET active=0 WHERE id=?", (product_id,))
+
+    def purchase_product(self, buyer: int, product_id: int) -> int:
+        with self.transaction():
+            item = self.product(product_id)
+            if not item["active"]:
+                raise UserError("This product is no longer for sale.")
+            count = self.db.execute("SELECT COUNT(*) FROM product_orders WHERE buyer_id=? AND product_id=?",
+                                    (str(buyer), product_id)).fetchone()[0]
+            if item["purchase_mode"] == "once" and count:
+                raise UserError("You already purchased this. Use ?orders to see your purchases.")
+            if item["purchase_mode"] == "limited" and count >= item["purchase_limit"]:
+                raise UserError("You reached this product's purchase limit.")
+            self.change(buyer, -item["price"], f"product:{product_id}")
+            cursor = self.db.execute("INSERT INTO product_orders(product_id,buyer_id,price,created_at) VALUES (?,?,?,?)",
+                                     (product_id, str(buyer), item["price"], time.time()))
+            assert cursor.lastrowid is not None
+            return cursor.lastrowid
+
     def close(self) -> None:
         self.db.close()
